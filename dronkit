@@ -1,0 +1,88 @@
+import time
+from pymavlink import mavutil
+
+# Dron ile bağlantı kurma
+def connect_mavlink(connection_string):
+    vehicle = mavutil.mavlink_connection(connection_string, baud=57600)
+    vehicle.wait_heartbeat()  # Bağlantı başarılı olduğunda kalp atışı sinyali alır
+    print("Bağlantı başarılı!")
+    return vehicle
+
+# Motorları arm etme ve kalkış
+def arm_and_takeoff(vehicle, target_altitude):
+    # Motorları arm etme
+    print("Motorlar arm ediliyor...")
+    vehicle.mav.command_long_send(
+        vehicle.target_system,
+        vehicle.target_component,
+        mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
+        0, 1, 0, 0, 0, 0, 0, 0
+    )
+    vehicle.motors_armed_wait()  # Motorlar arm olana kadar bekle
+    print("Motorlar arm edildi!")
+
+    # Kalkış komutu
+    vehicle.mav.command_long_send(
+        vehicle.target_system,
+        vehicle.target_component,
+        mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
+        0, 0, 0, 0, 0, 0, 0, target_altitude
+    )
+    print(f"{target_altitude} metreye kalkış yapılıyor...")
+
+    # Hedef irtifaya ulaşana kadar bekle
+    while True:
+        msg = vehicle.recv_match(type='GLOBAL_POSITION_INT', blocking=True)
+        altitude = msg.relative_alt / 1000.0  # İrtifa milimetre cinsinden, metreye çevriliyor
+        print(f"Mevcut İrtifa: {altitude} metre")
+        if altitude >= target_altitude * 0.95:
+            print("Hedef irtifaya ulaşıldı.")
+            break
+        time.sleep(1)
+
+# Belirli bir hızla NED çerçevesinde hareket etme
+def goto_position_target_relative_ned(vehicle, north, east, down):
+    msg = vehicle.mav.set_position_target_local_ned_encode(
+        0,  # time_boot_ms
+        vehicle.target_system, vehicle.target_component,
+        mavutil.mavlink.MAV_FRAME_LOCAL_NED,  # NED koordinat sistemi
+        0b0000111111111000,  # Pozisyon maskesi
+        north, east, down,  # Kuzey, Doğu, Aşağı pozisyonları
+        0, 0, 0,  # Hız (kullanılmıyor)
+        0, 0, 0,  # İvme (kullanılmıyor)
+        0, 0  # Yaw, Yaw_rate (kullanılmıyor)
+    )
+    vehicle.mav.send(msg)
+    print(f"Kuzey: {north}, Doğu: {east}, Aşağı: {down} yönünde hareket ediliyor.")
+
+# İniş (LAND) komutu
+def land(vehicle):
+    print("İniş yapılıyor...")
+    vehicle.mav.command_long_send(
+        vehicle.target_system,
+        vehicle.target_component,
+        mavutil.mavlink.MAV_CMD_NAV_LAND,
+        0, 0, 0, 0, 0, 0, 0, 0
+    )
+
+# Ana program
+if __name__ == "__main__":
+    connection_string = '/dev/ttyAMA0'  # Bağlantı string'inizi buraya girin
+    vehicle = connect_mavlink(connection_string)
+
+    # 3 metreye kalkış yap
+    arm_and_takeoff(vehicle, 3)
+
+    # 3 metre kuzeye doğru hareket
+    goto_position_target_relative_ned(vehicle, 3, 0, 0)
+    time.sleep(5)
+
+    # 3 metre doğuya doğru hareket
+    goto_position_target_relative_ned(vehicle, 0, 3, 0)
+    time.sleep(5)
+
+    # İniş yap
+    land(vehicle)
+
+    # Bağlantıyı kapat
+    vehicle.close()
