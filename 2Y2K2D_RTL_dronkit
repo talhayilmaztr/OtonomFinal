@@ -1,0 +1,90 @@
+import time
+from pymavlink import mavutil
+
+# Dron ile bağlantı kurma
+def connect_mavlink(connection_string):
+    vehicle = mavutil.mavlink_connection(connection_string, baud=57600)
+    vehicle.wait_heartbeat()
+    print("Bağlantı başarılı!")
+    return vehicle
+
+# Motorları arm etme ve kalkış
+def arm_and_takeoff(vehicle, target_altitude):
+    # Dronun arm edilebilir olduğunu kontrol et
+    while not vehicle.motors_armed():
+        print("Waiting for vehicle to initialize...")
+        vehicle.mav.command_long_send(
+            vehicle.target_system,
+            vehicle.target_component,
+            mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
+            0,
+            1, 0, 0, 0, 0, 0, 0
+        )
+        vehicle.motors_armed_wait()
+        print("Motors armed!")
+    
+    # Kalkış komutu
+    vehicle.mav.command_long_send(
+        vehicle.target_system,
+        vehicle.target_component,
+        mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
+        0,
+        0, 0, 0, 0, 0, 0, target_altitude
+    )
+    print(f"Takeoff to {target_altitude} meters")
+
+    # Hedef irtifaya ulaşılıp ulaşılmadığını kontrol et
+    while True:
+        msg = vehicle.recv_match(type='GLOBAL_POSITION_INT', blocking=True)
+        altitude = msg.relative_alt / 1000.0  # İrtifa milimetre cinsinden, metreye çevrilir
+        print(f"Current Altitude: {altitude} meters")
+        if altitude >= target_altitude * 0.95:
+            print("Reached target altitude")
+            break
+        time.sleep(1)
+
+# NED (Kuzey, Doğu, Aşağı) koordinatlarına gitme
+def goto_position_target_local_ned(vehicle, north, east, down):
+    msg = vehicle.mav.set_position_target_local_ned_encode(
+        0,  # Zaman
+        vehicle.target_system, vehicle.target_component,
+        mavutil.mavlink.MAV_FRAME_LOCAL_NED,  # Koordinat çerçevesi
+        0b0000111111111000,  # Pozisyon verilerini etkinleştirme
+        north, east, down,  # NED pozisyon
+        0, 0, 0,  # Hız bilgisi (kullanılmıyor)
+        0, 0, 0,  # İvme (kullanılmıyor)
+        0, 0  # Yön ve yön değişim hızı (kullanılmıyor)
+    )
+    vehicle.mav.send(msg)
+    print(f"Goto NED position: North {north}, East {east}, Down {down}")
+
+# Eve dönüş (RTL) modu
+def rtl(vehicle):
+    vehicle.mav.command_long_send(
+        vehicle.target_system,
+        vehicle.target_component,
+        mavutil.mavlink.MAV_CMD_NAV_RETURN_TO_LAUNCH,
+        0,
+        0, 0, 0, 0, 0, 0, 0
+    )
+    print("RTL Mode Engaged")
+
+# Ana program
+if __name__ == "__main__":
+    connection_string = '/dev/ttyAMA0'  # Bağlantı portunuza göre güncelleyin
+    vehicle = connect_mavlink(connection_string)
+
+    # 2 metre kalkış
+    arm_and_takeoff(vehicle, 2)
+
+    # 2 metre kuzeye, 1 metre doğuya git
+    goto_position_target_local_ned(vehicle, 2, 1, 0)  # 2 metre kuzey, 1 metre doğu, irtifa değişimi yok
+
+    # 5 saniye bekle
+    time.sleep(5)
+
+    # Eve dön (RTL)
+    rtl(vehicle)
+
+    # Bağlantıyı kapat
+    vehicle.close()
