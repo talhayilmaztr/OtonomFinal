@@ -1,0 +1,50 @@
+import time
+from pymavlink import mavutil
+
+# Dron ile ba?lant? kurma
+def connect_mavlink(connection_string):
+    vehicle = mavutil.mavlink_connection(connection_string, baud=57600)
+    vehicle.wait_heartbeat()  # Ba?lant? ba?ar?l? oldu?unda kalp at??? sinyali al?r
+    print("Ba?lant? ba?ar?l?!")
+    return vehicle
+
+# Motorlar? arm etme
+def arm_vehicle(vehicle):
+    print("Motorlar arm ediliyor...")
+    vehicle.mav.command_long_send(
+        vehicle.target_system,
+        vehicle.target_component,
+        mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
+        0, 1, 0, 0, 0, 0, 0, 0
+    )
+    vehicle.motors_armed_wait()  # Motorlar arm olana kadar bekle
+    print("Motorlar arm edildi!")
+
+# Motorlar? disarm etme
+def disarm_vehicle(vehicle):
+    print("Motorlar disarm ediliyor...")
+    vehicle.mav.command_long_send(
+        vehicle.target_system,
+        vehicle.target_component,
+        mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
+        0, 0, 0, 0, 0, 0, 0, 0
+    )
+    vehicle.motors_disarmed_wait()  # Motorlar disarm olana kadar bekle
+    print("Motorlar disarm edildi!")
+
+# Ana program
+if __name__ == "__main__":
+    connection_string = '/dev/ttyAMA0'  # Ba?lant? string'inizi buraya girin
+    vehicle = connect_mavlink(connection_string)
+
+    # Motorlar? arm et
+    arm_vehicle(vehicle)
+
+    # 5 saniye bekle
+    time.sleep(5)
+
+    # Motorlar? disarm et
+    disarm_vehicle(vehicle)
+
+    # Ba?lant?y? kapat
+    vehicle.close()
